@@ -1,0 +1,29 @@
+# Eclipse
+.classpath
+.project
+.settings/
+.cache-main
+.cache-tests
+.scalastyle
+
+# Intellij
+.idea/
+*.iml
+*.iws
+
+# Mac
+.DS_Store
+
+# Maven
+log/
+target/
+# project/
+
+# Spark
+metastore_db
+derby.log
+/bin/
+/src/test/resources/osm_pois/
+/src/main/resources/
+/src/main/resources/application.conf
+
