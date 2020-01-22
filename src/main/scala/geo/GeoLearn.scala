@@ -2,7 +2,7 @@ package geo
 
 import java.io.File
 
-import com.vividsolutions.jts.geom.{Envelope, Geometry}
+import com.vividsolutions.jts.geom.{Coordinate, Envelope, Geometry, GeometryFactory}
 import org.apache.log4j.{Level, Logger}
 import org.apache.spark.serializer.KryoSerializer
 import org.apache.spark.sql.SparkSession
@@ -10,12 +10,12 @@ import org.apache.spark.sql.catalyst.analysis.FunctionRegistry
 import org.apache.spark.sql.geosparksql.expressions.ST_Point
 import org.apache.spark.sql.types.DataType
 import org.apache.spark.{SparkConf, SparkContext}
-import org.datasyslab.geospark.enums.FileDataSplitter
+import org.datasyslab.geospark.enums.{FileDataSplitter, GridType, IndexType}
 import org.datasyslab.geospark.formatMapper.shapefileParser.ShapefileReader
 import org.datasyslab.geospark.formatMapper.{GeoJsonReader, WktReader}
 import org.datasyslab.geospark.serde.GeoSparkKryoRegistrator
-import org.datasyslab.geospark.spatialOperator.RangeQuery
-import org.datasyslab.geospark.spatialRDD.{PointRDD, PolygonRDD, SpatialRDD}
+import org.datasyslab.geospark.spatialOperator.{JoinQuery, KNNQuery, RangeQuery}
+import org.datasyslab.geospark.spatialRDD.{CircleRDD, PointRDD, PolygonRDD, SpatialRDD}
 import org.datasyslab.geosparksql.utils.Adapter
 
 import scala.collection.JavaConverters._
@@ -149,9 +149,54 @@ object GeoLearn {
     val usingIndex = false
     var queryResult = RangeQuery.SpatialRangeQuery(polygonRDD, rangeQueryWindow, considerBoundaryIntersection, usingIndex)
 
-        println(s"queryResult\n${queryResult.collect().asScala.mkString("\n")}")
+//    println(s"queryResult\n${queryResult.collect().asScala.mkString("\n")}")
 
+    val geometryFactory = new GeometryFactory()
+    val coordinates = new Array[Coordinate](5)
+    coordinates(0) = new Coordinate(0,0)
+    coordinates(1) = new Coordinate(0,4)
+    coordinates(2) = new Coordinate(4,4)
+    coordinates(3) = new Coordinate(4,0)
+    coordinates(4) = coordinates(0)
+    val polygonObject = geometryFactory.createPolygon(coordinates)
 
+    val buildOnSpatialPartitionedRDD = false // Set to TRUE only if run join query
+    polygonRDD.buildIndex(IndexType.QUADTREE, buildOnSpatialPartitionedRDD)
+
+    val usingIndexTrue = true
+    var indexQueryResult = RangeQuery.SpatialRangeQuery(polygonRDD, rangeQueryWindow, considerBoundaryIntersection, usingIndexTrue)
+
+//    println(s"indexQueryResult\n${indexQueryResult.collect().asScala.mkString("\n")}")
+
+//    val pointObject = geometryFactory.createPoint(new Coordinate(-84.01, 34.01))
+//    val K = 1000 // K Nearest Neighbors
+//    val KNNQueryResult = KNNQuery.SpatialKnnQuery(objectRDD, pointObject, K, usingIndex)
+
+//    println(KNNQueryResult)
+
+    objectRDD.analyze()
+
+    //Two SpatialRDD must be partitioned by the same way.
+    objectRDD.spatialPartitioning(GridType.KDBTREE)
+    pointRDD.spatialPartitioning(objectRDD.getPartitioner)
+
+//    Each object on the left is covered/intersected by the object on the right.
+
+    val spatialJoinQuery = JoinQuery.SpatialJoinQuery(objectRDD, pointRDD, usingIndex, considerBoundaryIntersection)
+
+//    println("spatialJoinQuery \n"+ spatialJoinQuery.collect().asScala.mkString("\n"))
+
+    val indexSpatialJoinQuery = JoinQuery.SpatialJoinQueryFlat(objectRDD, pointRDD, usingIndexTrue, considerBoundaryIntersection)
+
+    val circleRDD = new CircleRDD(pointRDD, 0.1) // Create a CircleRDD using the given distance
+
+    println("circleRDD \n"+ circleRDD.getCenterPointAsSpatialRDD.rawSpatialRDD.collect().asScala.mkString("\n"))
+
+    circleRDD.analyze()
+    circleRDD.spatialPartitioning(GridType.KDBTREE)
+    polygonRDD.spatialPartitioning(circleRDD.getPartitioner)
+
+    val distanceJoinQueryFlat = JoinQuery.DistanceJoinQueryFlat(polygonRDD, circleRDD, usingIndex, considerBoundaryIntersection)
 
 
   }
