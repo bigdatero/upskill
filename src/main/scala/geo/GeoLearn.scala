@@ -2,7 +2,7 @@ package geo
 
 import java.io.File
 
-import com.vividsolutions.jts.geom.Geometry
+import com.vividsolutions.jts.geom.{Envelope, Geometry}
 import org.apache.log4j.{Level, Logger}
 import org.apache.spark.serializer.KryoSerializer
 import org.apache.spark.sql.SparkSession
@@ -14,6 +14,7 @@ import org.datasyslab.geospark.enums.FileDataSplitter
 import org.datasyslab.geospark.formatMapper.shapefileParser.ShapefileReader
 import org.datasyslab.geospark.formatMapper.{GeoJsonReader, WktReader}
 import org.datasyslab.geospark.serde.GeoSparkKryoRegistrator
+import org.datasyslab.geospark.spatialOperator.RangeQuery
 import org.datasyslab.geospark.spatialRDD.{PointRDD, PolygonRDD, SpatialRDD}
 import org.datasyslab.geosparksql.utils.Adapter
 
@@ -91,22 +92,22 @@ object GeoLearn {
     FunctionRegistry.builtin.registerFunction("ST_Point", ST_Point)
     sparkSession.udf.register("ST_Point", ST_Point)
 
-    println(s"sqlDf\n")
-    sqlDf.show()
-
-    println(s"schema\n")
-    sqlDf.printSchema()
+//    println(s"sqlDf\n")
+//    sqlDf.show()
+//
+//    println(s"schema\n")
+//    sqlDf.printSchema()
 
     val castDf = sqlDf
       .withColumn("_c0",sqlDf.col("_c0").cast("double"))
       .withColumn("_c1",sqlDf.col("_c1").cast("double"))
     sqlDf.createOrReplaceTempView("castinputtable")
 
-    println(s"castDf\n")
-    castDf.show()
-
-    println(s"castDfschema\n")
-    castDf.printSchema()
+//    println(s"castDf\n")
+//    castDf.show()
+//
+//    println(s"castDfschema\n")
+//    castDf.printSchema()
 
 //    val spatialSqlDf = sparkSession.sql(
 //      """
@@ -119,7 +120,7 @@ object GeoLearn {
 ////        |SELECT ST_Point(castinputtable._c0,castinputtable._c1) AS checkin
 ////        |FROM castinputtable
 ////    """.stripMargin)
-//
+
 //    val sqlSpatialRDD = new SpatialRDD[Geometry]
 //    sqlSpatialRDD.rawSpatialRDD = Adapter.toRdd(spatialSqlDf)
 //
@@ -127,6 +128,30 @@ object GeoLearn {
 //    spatialSqlDf.show()
 
 //    println(s"shapefileRDD\n ${spatialSqlDf.rawSpatialRDD.collect().asScala.mkString("\n")}")
+
+    val pointRDD = new PointRDD(sc, pointRDDInputLocation, pointRDDOffset, pointRDDSplitter, carryOtherAttributes)
+    val changeRefSysRDD = new PointRDD(sc, pointRDDInputLocation, pointRDDOffset, pointRDDSplitter, carryOtherAttributes)
+    changeRefSysRDD.CRSTransform("epsg:4326", "epsg:3857")
+
+//    println(s"pointRDD\n${pointRDD.rawSpatialRDD.collect().asScala.mkString("\n")}")
+//    println(s"changeRefSysRDD\n${changeRefSysRDD.rawSpatialRDD.collect().asScala.mkString("\n")}")
+
+    val rddWithOtherAttributes = pointRDD.rawSpatialRDD.rdd.map(point => point.getUserData.asInstanceOf[String])
+
+//    println("rddWithOtherAttributes\n" + rddWithOtherAttributes.collect().mkString("\n"))
+
+    val rangeQueryWindow = new Envelope(-90.01, -80.01, 30.01, 40.01)
+    //    Defines a rectangular region of the 2D coordinate plane.
+    //    It is often used to represent the bounding box of a Geometry,
+    //    e.g. the minimum and maximum x and y values of the Coordinates.
+
+    val considerBoundaryIntersection = false // Only return gemeotries fully covered by the window
+    val usingIndex = false
+    var queryResult = RangeQuery.SpatialRangeQuery(polygonRDD, rangeQueryWindow, considerBoundaryIntersection, usingIndex)
+
+        println(s"queryResult\n${queryResult.collect().asScala.mkString("\n")}")
+
+
 
 
   }
